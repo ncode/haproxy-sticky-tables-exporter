@@ -23,6 +23,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -54,10 +55,12 @@ func init() {
 	rootCmd.PersistentFlags().IntP("port", "p", 9366, "Port to expose metrics on")
 	rootCmd.PersistentFlags().StringSlice("metrics", []string{}, "Comma-separated list of metrics to collect (empty means all)")
 	rootCmd.PersistentFlags().StringSlice("tables", []string{}, "Comma-separated list of stick tables to collect (empty means all)")
+	rootCmd.PersistentFlags().StringP("log-level", "l", "info", "error, debug, in")
 	viper.BindPFlag("haproxy-config", rootCmd.PersistentFlags().Lookup("haproxy-config"))
 	viper.BindPFlag("port", rootCmd.PersistentFlags().Lookup("port"))
 	viper.BindPFlag("metrics", rootCmd.PersistentFlags().Lookup("metrics"))
 	viper.BindPFlag("tables", rootCmd.PersistentFlags().Lookup("tables"))
+	viper.BindPFlag("log-level", rootCmd.PersistentFlags().Lookup("log-level"))
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -82,4 +85,21 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 	}
+
+	logLevel := viper.GetString("log-level")
+	var level slog.Level
+	switch logLevel {
+	case "debug":
+		level = slog.LevelDebug
+	case "info":
+		level = slog.LevelInfo
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: level,
+	})))
 }

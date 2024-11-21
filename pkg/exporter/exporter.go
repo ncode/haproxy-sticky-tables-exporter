@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -28,7 +27,6 @@ type HaproxyExporter struct {
 }
 
 func New(socketPath string, selectedMetrics, selectedTables []string) (*HaproxyExporter, error) {
-	slog.Info(socketPath)
 	runtimeOptions := options.MasterSocket(socketPath)
 	runtimeClient, err := runtime.New(context.Background(), runtimeOptions)
 	if err != nil {
@@ -176,7 +174,7 @@ func initializeMetrics(selectedMetrics []string) (map[string]*prometheus.Desc, m
 			if _, exists := allMetrics[metricName]; exists {
 				selectedMetricsMap[metricName] = true
 			} else {
-				log.Printf("Warning: Metric %s is not recognized and will be ignored.", metricName)
+				slog.Warn("Warning: Metric %s is not recognized and will be ignored.", metricName)
 			}
 		}
 	}
@@ -216,15 +214,21 @@ func (e *HaproxyExporter) Collect(ch chan<- prometheus.Metric) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	log.Println("Collecting HAProxy metrics...")
+	slog.Info("Collecting HAProxy metrics...")
 
 	stickTables, err := e.runtimeClient.ShowTables()
 	if err != nil {
-		log.Printf("Error fetching stick tables: %v", err)
+		slog.Error("Error fetching stick tables: %v", err)
 		return
 	}
 
+	slog.Info("Number of stick tables found: %d", len(stickTables))
+
 	for _, table := range stickTables {
+		// Check if the table is selected
+		if !e.isTableSelected(table.Name) {
+			continue
+		}
 		e.collectStickTableMetrics(table, ch)
 	}
 }
@@ -240,6 +244,8 @@ func (e *HaproxyExporter) collectStickTableMetrics(table *models.StickTable, ch 
 	if table == nil {
 		return
 	}
+
+	slog.Info("Collecting metrics for stick table: %s", table.Name)
 
 	// Collect table-level metrics if they are selected
 	if e.selectedMetrics["stick_table_used"] {
@@ -278,7 +284,7 @@ func (e *HaproxyExporter) collectStickTableMetrics(table *models.StickTable, ch 
 	// Collect entries from the stick table using filters
 	entries, err := e.runtimeClient.GetTableEntries(table.Name, filters, "")
 	if err != nil {
-		log.Printf("Error fetching entries for table %s: %v", table.Name, err)
+		slog.Error("Error fetching entries for table %s: %v", table.Name, err)
 		return
 	}
 
@@ -291,6 +297,8 @@ func (e *HaproxyExporter) collectStickTableEntryMetrics(tableName string, entry 
 	if entry == nil || entry.Key == "" {
 		return
 	}
+
+	slog.Info("Processing entry with key: %s", entry.Key)
 
 	v := reflect.ValueOf(entry).Elem()
 	t := v.Type()
@@ -391,6 +399,6 @@ func Start() error {
 	http.Handle("/metrics", promhttp.Handler())
 	port := viper.GetInt("port")
 	serverAddr := fmt.Sprintf(":%d", port)
-	log.Printf("Listening on %s", serverAddr)
+	slog.Info("Listening on %s", serverAddr)
 	return http.ListenAndServe(serverAddr, nil)
 }
